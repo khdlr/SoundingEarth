@@ -1,134 +1,180 @@
+import h5py
 import torch
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
-import rasterio as rio
+from PIL import Image
+import pandas as pd
 from pathlib import Path
-from lib import md5
-
-from config import cfg
-
-
-def _isval(gt_path):
-    year = int(gt_path.stem[:4])
-
-    return year >= 2020
+from torchvision import transforms
+from sklearn.neighbors import NearestNeighbors
+from torch.utils.data._utils.collate import default_collate
 
 
-def get_loader(batch_size, data_threads, mode):
-    data = UC1Dataset(mode=mode)
-    if mode == 'train':
-        data = Augment(data)
-
-    return torch.utils.data.DataLoader(data,
-        batch_size=batch_size,
-        num_workers=data_threads,
-        pin_memory=True
-    )
-
-
-class UC1Dataset(torch.utils.data.Dataset):
-    def __init__(self, mode='train'):
+class AporeeDataset(Dataset):
+    def __init__(self, root, filter_fn=None, augment=False, max_samples=None):
         super().__init__()
-        self.root = Path('/data/aicore/uc1/data/aicore')
-        self.cachedir = self.root.parent / 'cache'
-        self.cachedir.mkdir(exist_ok=True)
-        self.confighash = md5(cfg.Bands)
+        self.root = Path(root)
+        self.meta = pd.read_csv(self.root / 'metadata.csv')
+        self.snd_meta = pd.read_csv(self.root / 'keyoffsets.csv')
 
-        self.gts = sorted(list(self.root.glob('ground_truth/*/*/*_30m.tif')))
-        if mode == 'train':
-            self.gts = [g for g in self.gts if not _isval(g)]
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+        normalize = transforms.Normalize(mean=mean, std=std)
+        self.unnormalize = Unnormalize(mean=mean, std=std)
+        self.maxlen = max_samples
+
+        if augment:
+            self.imgtransform = transforms.Compose([
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomVerticalFlip(),
+                transforms.ToTensor(), normalize
+            ])
         else:
-            self.gts = [g for g in self.gts if _isval(g)]
+            self.imgtransform = transforms.Compose([
+                transforms.ToTensor(), normalize
+            ])
+
+
+        # join and merge
+        img_present = set(int(f.stem) for f in (self.root).glob('images_small/*.jpg'))
+        self.meta = self.meta[self.meta.key.isin(img_present)]
+        self.meta = self.meta.merge(self.snd_meta, left_on='key', right_on='key', how='inner')
+        self.meta = self.meta[self.meta.len != 0]
+        if filter_fn:
+            self.meta = self.meta[self.meta.key.apply(filter_fn)]
+        self.meta = self.meta.reset_index(drop=True)
+        self.h5 = None
+        self.key2idx = {v: i for i, v in enumerate(self.meta.key)}
+        self.augment = augment
+        print('Number of Samples:', len(self.meta))
+
+    def assert_open(self):
+        if self.h5 is None:
+            self.h5 = h5py.File(self.root / 'spectrograms.h5', 'r')
+
+    def get_asymmetric_sampler(self, batch_size, asymmetry):
+        lon = np.radians(self.meta.longitude.values)
+        lat = np.radians(self.meta.latitude.values)
+
+        coords = np.stack([
+            np.cos(lon) * np.cos(lat),
+            np.sin(lon) * np.cos(lat),
+            np.sin(lat),
+        ], axis=1)
+
+        return AsymmetricSampler(coords, asymmetry, batch_size)
+
+    def get_batch(self, keys):
+        true_indices = map(self.key2idx.get, keys)
+        return self.collate([self[i] for i in true_indices])
+
+    def collate(self, batch):
+        key, img, audio, audio_split = zip(*batch)
+        # Haversine distance calculation
+        idx = list(map(self.key2idx.get, key))
+        lon1 = np.radians(self.meta.longitude.values[idx])
+        lat1 = np.radians(self.meta.latitude.values[idx])
+        lon1 = lon1.reshape(1, -1)
+        lat1 = lat1.reshape(1, -1)
+        lon2 = lon1.reshape(-1, 1)
+        lat2 = lat1.reshape(-1, 1)
+
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+        a = np.square(np.sin(dlat/2)) + np.cos(lat1) * np.cos(lat2) * np.square(np.sin(dlon/2))
+        c = 2 * np.arcsin(np.sqrt(a))
+        dist = torch.from_numpy(c * 6371) # distance in km
+
+        key = torch.tensor(key)
+        img = torch.stack(img, dim=0)
+        audio = torch.cat(audio, dim=0).unsqueeze(1)
+        audio_split = audio_split
+        return key, img, audio, audio_split, dist
 
     def __getitem__(self, idx):
-        path = self.gts[idx]
-        *_, site, date, gtname = path.parts
-        gt_cache = self.cachedir / f'{site}_{date}.pt'
-        ref_cache = self.cachedir / f'{site}_{date}_{self.confighash}.pt'
+        sample = self.meta.iloc[idx]
+        key = sample.key
 
-        if gt_cache.exists():
-            gt = torch.load(gt_cache)
-        else:
-            with rio.open(path) as raster:
-                gt = raster.read(1)
-            gt = torch.from_numpy(gt).to(torch.bool)
-            torch.save(gt, gt_cache)
-        gt = gt.to(torch.float32)
+        img = Image.open(self.root / 'images_small' / f'{key}.jpg')
+        img = self.imgtransform(img)
 
-        if ref_cache.exists():
-            ref = torch.load(ref_cache)
-        else:
-            ref_root = self.root / 'reference_data' / site / date / '30m'
-
-            ref = []
-            for band in cfg.Bands:
-                try:
-                    with rio.open(ref_root / f'{band}.tif') as raster:
-                        ref.append(raster.read(1).astype(np.uint8))
-                except rio.errors.RasterioIOError:
-                    print(f'RasterioIOError when opeining {ref_root}/{band}.tif')
-                    return None
-            ref = torch.from_numpy(np.stack(ref, axis=-1)).to(torch.uint8)
-            torch.save(ref, ref_cache)
-        ref = ref.to(torch.float32) / 255
-
-        return ref, gt
+        self.assert_open()
+        h5idx = sample.start
+        audio_split = min(sample.len, self.maxlen)
+        idx = h5idx + int(torch.randint(0, sample.len-audio_split+1, []))
+        audio = self.h5['spectrogram'][idx:idx+audio_split]
+        audio = torch.from_numpy(audio)
+        return [key, img, audio, audio_split]
 
     def __len__(self):
-        return len(self.gts)
+        return len(self.meta)
 
 
-def _nested_apply(fun, arg):
-    t = type(arg)
-    if t in [tuple, list, set]:
-        return t(_nested_apply(fun, x) for x in arg)
-    else:
-        return fun(arg)
+class AsymmetricSampler(torch.utils.data.Sampler):
+    def __init__(self, coords, asymmetry, batch_size):
+        self.coords = coords
+        self.asymmetry = asymmetry
+        self.batch_size = batch_size
+        self.knn = NearestNeighbors(n_neighbors=batch_size)
+        self.knn.fit(self.coords)
+
+    def sample_around(self, start):
+        batch_idx = set([start])
+        offset = self.asymmetry * self.coords[start]
+        while len(batch_idx) < self.batch_size:
+            X = torch.randn([1, 3]).numpy() + offset
+            X = X / np.linalg.norm(X, ord='fro')
+            _, candidates = self.knn.kneighbors(X)
+            indices = (int(c) for c in candidates[0])
+            batch_idx.add(next(i for i in indices if i not in batch_idx))
+
+        return list(batch_idx)
+
+    def rand(self):
+        return int(torch.randint(0, self.coords.shape[0], []))
+
+    def __iter__(self, ):
+        for i in range(len(self)):
+            if i % 2 == 0:
+                start = self.rand()
+                yield self.sample_around(start)
+            else:
+                yield [self.rand() for _ in range(self.batch_size)]
+
+    def __len__(self, ):
+        return self.coords.shape[0] // self.batch_size
 
 
-def _augment_transform(opflags):
-    flipx, flipy, transpose = opflags
-    def augmentation(field):
-        if type(field) is not torch.Tensor or field.ndim < 3:
-            # Not spatial! -> no augmentation
-            return field
-        if transpose:
-            field = field.transpose(-1, -2)
-        if flipx or flipy:
-            dims = []
-            if flipy: dims.append(-2)
-            if flipx: dims.append(-1)
-            field = torch.flip(field, dims)
-        return field
-    return augmentation
+def get_loader(batch_size, mode, num_workers=4, asymmetry=0, max_samples=100):
+    FACTOR = 10
+    filter_fn = {
+        'train': lambda x: (x%FACTOR) not in (7, 5, 2),
+        'val':   lambda x: (x%FACTOR) == 7,
+        'test':  lambda x: (x%FACTOR) in (2, 5),
+        'all':   lambda x: True
+    }.get(mode)
+    is_train = (mode == 'train')
+    dataset = AporeeDataset('aporee', filter_fn, augment=is_train, max_samples=max_samples)
+    loader_args = dict(
+        batch_size = batch_size,
+        pin_memory = False,
+        num_workers = num_workers,
+        shuffle = is_train,
+        collate_fn = dataset.collate,
+        drop_last = True
+    )
+    if asymmetry != 0:
+        loader_args['batch_sampler'] = dataset.get_asymmetric_sampler(batch_size, asymmetry)
+        del loader_args['batch_size']
+        del loader_args['shuffle']
+        del loader_args['drop_last']
+    return DataLoader(dataset, **loader_args)
 
 
-class Augment(torch.utils.data.IterableDataset):
-    def __init__(self, dataset):
-        self.dataset = dataset
+class Unnormalize:
+    def __init__(self, mean, std):
+        self.mean = torch.tensor(mean).reshape(1, -1, 1, 1)
+        self.std = torch.tensor(std).reshape(1, -1, 1, 1)
 
-    def __iter__(self):
-        for el in self.dataset:
-            opflags = torch.randint(2, [3])
-            yield _nested_apply(_augment_transform(opflags), el)
-
-
-if __name__ == '__main__':
-    from tqdm import tqdm
-
-    print('Train..')
-    ds = UC1Dataset(mode='train')
-    print('First pass')
-    for _ in tqdm(ds):
-        pass
-    print('Second pass')
-    for _ in tqdm(ds):
-        pass
-
-    print('Val..')
-    ds = UC1Dataset(mode='val')
-    print('First pass')
-    for _ in tqdm(ds):
-        pass
-    print('Second pass')
-    for _ in tqdm(ds):
-        pass
+    def __call__(self, tensor):
+        return tensor.mul(self.std).add(self.mean)

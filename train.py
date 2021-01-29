@@ -7,80 +7,90 @@ from datetime import datetime
 import shutil
 from tqdm import tqdm
 
-from lib import get_optimizer, get_model, get_loss_function, Metrics, plotting
+from lib import get_optimizer, get_model, get_loss_function, Metrics
+from lib.models import FullModelWrapper
 from config import cfg, state
 from data_loading import get_loader
 
 
-def model_forward(model, imagery, ground_truth, metrics):
-    imagery = imagery.to(model.device)
-    ground_truth = ground_truth.to(model.device)
-    prediction = model(imagery)
+def full_forward(model, key, img, snd, snd_split, distance, metrics):
+    img = img.to(dev)
+    snd = snd.to(dev)
+    # margin = torch.clamp(distance / 100, max=1).to(dev)
 
-    loss = loss_fn(prediction, target)
+    Z_img = model.img_encoder(img)
+    Z_snd_multi = model.snd_encoder(snd)
+
+    M_img, M_snd = model.matcher(Z_img, Z_snd_multi, snd_split)
+
+    loss = model.loss_function(M_img, M_snd)
 
     with torch.no_grad():
-        metrics.step(prediction, target)
+        d_matrix = torch.norm(
+            model.loss_function.distance_transform(M_img) -
+            model.loss_function.distance_transform(M_snd),
+        p=2, dim=2)
 
-    return dict(
-        images=images,
-        ground_truth=ground_truth,
-        prediction=prediction,
-        loss=loss,
-        accuracy=accuracy,
-    )
+        rk_img = 1.0 + d_matrix.argsort(dim=1).diag().float()
+        rk_snd = 1.0 + d_matrix.argsort(dim=0).diag().float()
+
+        N = d_matrix.shape[0]
+        d_true = torch.mean(d_matrix.diag())
+        d_false = (torch.mean(d_matrix) - d_true / N) * (N / (N-1))
+
+        res = dict(
+            Loss            = loss,
+            MedianRankImage = rk_img.median(),
+            MedianRankSound = rk_snd.median(),
+            AvgRankImage    = rk_img.mean(),
+            AvgRankSound    = rk_snd.mean(),
+            BatchRecallAt1  = (rk_img < 1.5).float().mean(),
+            AvgMargin       = d_true - d_false
+        )
+
+        metrics.step(**res)
+
+    return res
 
 
-def train_epoch(models, data_loader):
+def train_epoch(model, data_loader, metrics):
     state.Epoch += 1
-    for model in models:
-        model.train(True)
+    model.train(True)
     progress = tqdm(data_loader)
 
+    metrics.reset()
     # torch.autograd.set_detect_anomaly(True)
     for iteration, data in enumerate(progress):
-        res = full_forward(models, data)
+        res = full_forward(model, *data, metrics)
         opt.zero_grad()
-        res['loss'].backward()
+        res['Loss'].backward()
         opt.step()
+        state.BoardIdx += data[0].shape[0]
 
-        with torch.no_grad():
-            metrics.step(**{k: v for k, v in res.items() if 'loss' in k or 'l2' in k})
-            if (iteration+1) % 500 == 0:
-                metrics_vals = metrics.evaluate()
-                wandb.log({f'trn/{met}': val for met, val in metrics_vals.items()}, step=state.BoardIdx)
-                state.BoardIdx += 1
-                progress.set_postfix_str(f"{metrics_vals['loss']:.2f}")
+        if (iteration+1) % 115 == 0:
+            ep_step = (state.Epoch - 1) + iteration / len(data_loader)
+            metrics_vals = metrics.evaluate()
+            m = {f'trn/{met}': val for met, val in metrics_vals.items()}
+            m['_epoch'] = ep_step
+            wandb.log(m, step=state.BoardIdx)
+            progress.set_description(f'Loss: {metrics_vals["Loss"]:.2f}')
 
     # Save model Checkpoint
-    for model, name in zip(models, ['encoder', 'decoder', 'transcoder']):
-        torch.save(model.state_dict(), checkpoints / f'{epoch:02d}_{name}.pt')
+    if state.Epoch % 20 == 0:
+        torch.save(model.state_dict(), checkpoints / f'{state.Epoch:02d}.pt')
 
 
-def val_epoch(models, data_loader):
-    metrics = Metrics()
-    for model in models:
-        model.train(False)
-
-    base_idx = 0
+@torch.no_grad()
+def val_epoch(model, data_loader, metrics):
+    model.train(False)
+    metrics.reset()
     for iteration, data in enumerate(data_loader):
-        res = full_forward(models, data)
-        metrics.step(**{k: v for k, v in res.items() if 'loss' in k or 'l2' in k})
-
-        images, timestamps, masks, splits = data
-        # Image logging
-        for i in range(len(splits)):
-            if base_idx + i in cfg.Vis:
-                image     = torch.split(images, splits)[i]
-                timestamp = torch.split(timestamps, splits)[i]
-                mask      = torch.split(masks, splits)[i]
-
-                unknown_split = [torch.sum(1 - t.to(torch.int)) for t in torch.split(masks, splits)]
-                reconst   = torch.split(res['e2e_reconstruction'], unknown_split)[i]
-                log_image(image, timestamp, mask, reconst, tag=f'{base_idx+i}')
-        base_idx += len(splits)
+        res = full_forward(model, *data, metrics)
 
     metrics_vals = metrics.evaluate()
+    logstr = ', '.join(f'{k}: {v:2f}' for k, v in metrics_vals.items())
+    print(f'Epoch {state.Epoch:03d} Val: {metrics_vals}')
+    metrics_vals['_epoch'] = state.Epoch
     wandb.log({f'val/{met}': val for met, val in metrics_vals.items()}, step=state.BoardIdx)
 
 
@@ -88,7 +98,18 @@ if __name__ == "__main__":
     cfg.merge_from_file("config.yml")
     cfg.freeze()
 
-    model = get_model(cfg.Model)()
+    img_encoder   = get_model(cfg.ImageEncoder)(
+        input_dim=3, output_dim=cfg.LatentDim,
+        final_pool=False
+    )
+    snd_encoder   = get_model(cfg.SoundEncoder)(
+        input_dim=1, output_dim=cfg.LatentDim,
+        final_pool=True
+    )
+    matcher       = get_model(cfg.Matcher)()
+    loss_function = get_loss_function(cfg.LossFunction)()
+    model = FullModelWrapper(img_encoder, snd_encoder, matcher, loss_function)
+
     dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
     print(f'Training on {dev} device')
     model = model.to(dev)
@@ -99,7 +120,7 @@ if __name__ == "__main__":
     state.board_idx = 0
     state.vis_predictions = []
 
-    wandb.init(project='Chan Vese')
+    wandb.init(project='CleanSlate')
     wandb.config.update(cfg)
 
     if wandb.run.name:
@@ -108,17 +129,14 @@ if __name__ == "__main__":
         log_dir = Path('logs') / datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
     log_dir.mkdir(parents=True, exist_ok=False)
-    shutil.copy('config.yml', log_dir / 'config.yml')
     checkpoints = log_dir / 'checkpoints'
     checkpoints.mkdir()
 
-    train_data = get_loader(cfg.BatchSize, cfg.DataThreads, mode='train')
-    val_data = get_loader(cfg.BatchSize, 1, mode='val')
+    train_data = get_loader(cfg.BatchSize, num_workers=cfg.DataThreads, mode='train')
+    val_data = get_loader(cfg.BatchSize, num_workers=1, mode='val')
 
     metrics = Metrics()
-    loss_function = get_loss_function(cfg.Loss)
-
     for epoch in range(cfg.Epochs):
         print(f'Starting epoch "{epoch}"')
-        train_epoch(model, train_data)
-        val_epoch(model, val_data)
+        train_epoch(model, train_data, metrics)
+        val_epoch(model, val_data, metrics)

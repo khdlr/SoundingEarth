@@ -1,2 +1,3 @@
 # Config overrides
-Loss: 'Hinge'
+ImageEncoder: ResNet18
+SoundEncoder: ResNet18
