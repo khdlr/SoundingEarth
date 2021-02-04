@@ -11,10 +11,13 @@ class TripletLoss(nn.Module):
         return x
 
     def forward(self, x, y, margin=torch.ones([])):
-        d_true    = torch.norm(x - y, p=2, dim=1)
-        y_n = torch.roll(y, 1, dim=1)
-        d_false   = torch.norm(x - y_n, p=2, dim=1)
-        return torch.mean(F.relu(d_true - d_false + margin))
+        distance = torch.linalg.norm(x - y, ord=2, dim=-1)
+        d_true = distance.diagonal()
+
+        d1 = torch.mean(F.relu(d_true.unsqueeze(0) - distance + margin))
+        d2 = torch.mean(F.relu(d_true.unsqueeze(1) - distance + margin))
+
+        return 0.5 * (d1 + d2)
 
 
 class ContrastiveLoss(nn.Module):
@@ -22,7 +25,7 @@ class ContrastiveLoss(nn.Module):
         super().__init__()
 
     def distance_transform(self, x, dim=-1):
-        return x / torch.norm(x, p=2, dim=dim, keepdim=True)
+        return x / torch.linalg.norm(x, ord=2, dim=dim, keepdim=True)
 
     def forward(self, x, y, margin=torch.ones([])):
         sim = F.cosine_similarity(x, y, dim=2)
@@ -67,13 +70,13 @@ class SigmoidLoss(nn.Module):
 
     def forward(self, z_img, z_snd, margin=None):
         # Positive sample
-        dist_pos = torch.norm(z_img - z_snd, p=2, dim=1).unsqueeze(1)
+        dist_pos = torch.linalg.norm(z_img - z_snd, ord=2, dim=1).unsqueeze(1)
         logit_pos = dist_pos - self.logit_offset
         nll_pos = -torch.mean(F.logsigmoid(-logit_pos))
 
         # Negative sample
         z_snd_neg = torch.roll(z_snd, 1, dims=0)
-        dist_neg = torch.norm(z_img - z_snd_neg, p=2, dim=1).unsqueeze(1)
+        dist_neg = torch.linalg.norm(z_img - z_snd_neg, ord=2, dim=1).unsqueeze(1)
         logit_neg = dist_neg - self.logit_offset
         nll_neg = -torch.mean(F.logsigmoid(logit_neg))
 

@@ -15,7 +15,7 @@ class MeanPool(nn.Module):
             Z_snd.append(torch.mean(z_snd, dim=0))
         Z_snd = torch.stack(Z_snd)
 
-        M_img = Z_img.unsqueeze(0).expand(Z_snd.shape[0], *Z_img.shape)
-        M_snd = Z_snd.unsqueeze(1).expand(Z_img.shape[0], *Z_snd.shape)
+        M_img = Z_img.unsqueeze(0).expand(Z_snd.shape[0], Z_img.shape[0], Z_img.shape[1])
+        M_snd = Z_snd.unsqueeze(1).expand(Z_snd.shape[0], Z_img.shape[0], Z_snd.shape[1])
 
         return M_img, M_snd

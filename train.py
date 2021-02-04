@@ -1,14 +1,12 @@
 import torch
-import torch.nn.functional as F
 import wandb
-from itertools import chain
 from pathlib import Path
 from datetime import datetime
-import shutil
 from tqdm import tqdm
 
 from lib import get_optimizer, get_model, get_loss_function, Metrics
 from lib.models import FullModelWrapper
+from lib.evaluation import evaluate
 from config import cfg, state
 from data_loading import get_loader
 
@@ -26,29 +24,33 @@ def full_forward(model, key, img, snd, snd_split, distance, metrics):
     loss = model.loss_function(M_img, M_snd)
 
     with torch.no_grad():
-        d_matrix = torch.norm(
+        d_matrix = torch.linalg.norm(
             model.loss_function.distance_transform(M_img) -
             model.loss_function.distance_transform(M_snd),
-        p=2, dim=2)
+        ord=2, dim=2)
 
-        rk_img = 1.0 + d_matrix.argsort(dim=1).diag().float()
-        rk_snd = 1.0 + d_matrix.argsort(dim=0).diag().float()
+        rk_i2s = 1.0 + d_matrix.argsort(dim=0).argsort(dim=0).diag().float()
+        rk_s2i = 1.0 + d_matrix.argsort(dim=1).argsort(dim=1).diag().float()
 
         N = d_matrix.shape[0]
         d_true = torch.mean(d_matrix.diag())
         d_false = (torch.mean(d_matrix) - d_true / N) * (N / (N-1))
 
-        res = dict(
-            Loss            = loss,
-            MedianRankImage = rk_img.median(),
-            MedianRankSound = rk_snd.median(),
-            AvgRankImage    = rk_img.mean(),
-            AvgRankSound    = rk_snd.mean(),
-            BatchRecallAt1  = (rk_img < 1.5).float().mean(),
-            AvgMargin       = d_true - d_false
-        )
+        res = {
+            'Loss': loss,
+            'I2S: R@1': 100 * (rk_i2s < 1.5).float().mean(),
+            'I2S: MedR': rk_i2s.median(),
+            'I2S: AvgR': rk_i2s.mean(),
+            'S2I: R@1': 100 * (rk_s2i < 1.5).float().mean(),
+            'S2I: MedR': rk_s2i.median(),
+            'AvgMargin': d_false - d_true,
+        }
 
         metrics.step(**res)
+        metrics.step_hist(**{
+            'Image2Sound': rk_i2s,
+            'Sound2Image': rk_s2i,
+        })
 
     return res
 
@@ -56,24 +58,24 @@ def full_forward(model, key, img, snd, snd_split, distance, metrics):
 def train_epoch(model, data_loader, metrics):
     state.Epoch += 1
     model.train(True)
-    progress = tqdm(data_loader)
-
     metrics.reset()
     # torch.autograd.set_detect_anomaly(True)
-    for iteration, data in enumerate(progress):
+    for iteration, data in enumerate(tqdm(data_loader)):
         res = full_forward(model, *data, metrics)
         opt.zero_grad()
         res['Loss'].backward()
         opt.step()
         state.BoardIdx += data[0].shape[0]
 
-        if (iteration+1) % 115 == 0:
-            ep_step = (state.Epoch - 1) + iteration / len(data_loader)
-            metrics_vals = metrics.evaluate()
-            m = {f'trn/{met}': val for met, val in metrics_vals.items()}
-            m['_epoch'] = ep_step
-            wandb.log(m, step=state.BoardIdx)
-            progress.set_description(f'Loss: {metrics_vals["Loss"]:.2f}')
+    metrics_vals, metrics_hist = metrics.evaluate()
+    logstr = ', '.join(f'{k}: {v:2f}' for k, v in metrics_vals.items())
+    print(f'Epoch {state.Epoch:03d} Trn: {metrics_vals}')
+    m = {f'trn/{met}': val for met, val in metrics_vals.items()}
+    m['_epoch'] = state.Epoch
+    for h in metrics_hist:
+        m[f'trn/{h}'] = wandb.Histogram(np_histogram=metrics_hist[h])
+    wandb.log(m, step=state.BoardIdx)
+    wandb.log
 
     # Save model Checkpoint
     if state.Epoch % 20 == 0:
@@ -87,11 +89,14 @@ def val_epoch(model, data_loader, metrics):
     for iteration, data in enumerate(data_loader):
         res = full_forward(model, *data, metrics)
 
-    metrics_vals = metrics.evaluate()
+    metrics_vals, metrics_hist = metrics.evaluate()
     logstr = ', '.join(f'{k}: {v:2f}' for k, v in metrics_vals.items())
     print(f'Epoch {state.Epoch:03d} Val: {metrics_vals}')
-    metrics_vals['_epoch'] = state.Epoch
-    wandb.log({f'val/{met}': val for met, val in metrics_vals.items()}, step=state.BoardIdx)
+    m = {f'val/{met}': val for met, val in metrics_vals.items()}
+    m['_epoch'] = state.Epoch
+    for h in metrics_hist:
+        m[f'val/{h}'] = wandb.Histogram(np_histogram=metrics_hist[h])
+    wandb.log(m, step=state.BoardIdx)
 
 
 if __name__ == "__main__":
@@ -120,7 +125,7 @@ if __name__ == "__main__":
     state.board_idx = 0
     state.vis_predictions = []
 
-    wandb.init(project='CleanSlate')
+    wandb.init(project='HearingOurPlanet')
     wandb.config.update(cfg)
 
     if wandb.run.name:
@@ -140,3 +145,4 @@ if __name__ == "__main__":
         print(f'Starting epoch "{epoch}"')
         train_epoch(model, train_data, metrics)
         val_epoch(model, val_data, metrics)
+    evaluate(model, log_dir)

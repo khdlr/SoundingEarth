@@ -1,3 +1,2 @@
-# Config overrides
-ImageEncoder: ResNet18
-SoundEncoder: ResNet18
+# Config overrides for experiments
+DataRoot: /data/aporee/aporee

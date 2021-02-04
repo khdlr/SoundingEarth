@@ -7,7 +7,7 @@ import pandas as pd
 from pathlib import Path
 from torchvision import transforms
 from sklearn.neighbors import NearestNeighbors
-from torch.utils.data._utils.collate import default_collate
+from config import cfg
 
 
 class AporeeDataset(Dataset):
@@ -151,10 +151,11 @@ def get_loader(batch_size, mode, num_workers=4, asymmetry=0, max_samples=100):
         'train': lambda x: (x%FACTOR) not in (7, 5, 2),
         'val':   lambda x: (x%FACTOR) == 7,
         'test':  lambda x: (x%FACTOR) in (2, 5),
+        'toy':  lambda x: (x%1000) in (2, 5),
         'all':   lambda x: True
     }.get(mode)
     is_train = (mode == 'train')
-    dataset = AporeeDataset('aporee', filter_fn, augment=is_train, max_samples=max_samples)
+    dataset = AporeeDataset(cfg.DataRoot, filter_fn, augment=is_train, max_samples=max_samples)
     loader_args = dict(
         batch_size = batch_size,
         pin_memory = False,
