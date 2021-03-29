@@ -23,16 +23,26 @@ class AporeeDataset(Dataset):
         self.unnormalize = Unnormalize(mean=mean, std=std)
         self.maxlen = max_samples
 
-        if augment:
+        if augment and 'image' in cfg.AugmentationMode:
             self.imgtransform = transforms.Compose([
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
-                transforms.ToTensor(), normalize
+                transforms.ToTensor(), normalize,
+                # transforms.RandomErasing()
             ])
         else:
             self.imgtransform = transforms.Compose([
                 transforms.ToTensor(), normalize
             ])
+
+        if augment and 'sound' in cfg.AugmentationMode:
+            self.sndtransform = transforms.Compose([
+                transforms.RandomCrop(size=128, padding=3),
+                # transforms.ColorJitter(brightness=0.1, contrast=0.1),
+                # transforms.RandomErasing()
+            ])
+        else:
+            self.sndtransform = lambda x: x
 
 
         # join and merge
@@ -69,27 +79,15 @@ class AporeeDataset(Dataset):
         return self.collate([self[i] for i in true_indices])
 
     def collate(self, batch):
-        key, img, audio, audio_split = zip(*batch)
-        # Haversine distance calculation
-        idx = list(map(self.key2idx.get, key))
-        lon1 = np.radians(self.meta.longitude.values[idx])
-        lat1 = np.radians(self.meta.latitude.values[idx])
-        lon1 = lon1.reshape(1, -1)
-        lat1 = lat1.reshape(1, -1)
-        lon2 = lon1.reshape(-1, 1)
-        lat2 = lat1.reshape(-1, 1)
-
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = np.square(np.sin(dlat/2)) + np.cos(lat1) * np.cos(lat2) * np.square(np.sin(dlon/2))
-        c = 2 * np.arcsin(np.sqrt(a))
-        dist = torch.from_numpy(c * 6371) # distance in km
+        key, img, audio, audio_split, v = zip(*batch)
 
         key = torch.tensor(key)
         img = torch.stack(img, dim=0)
         audio = torch.cat(audio, dim=0).unsqueeze(1)
+        v = torch.stack(v, dim=0)
         audio_split = audio_split
-        return key, img, audio, audio_split, dist
+
+        return key, img, audio, audio_split, v
 
     def __getitem__(self, idx):
         sample = self.meta.iloc[idx]
@@ -104,7 +102,16 @@ class AporeeDataset(Dataset):
         idx = h5idx + int(torch.randint(0, sample.len-audio_split+1, []))
         audio = self.h5['spectrogram'][idx:idx+audio_split]
         audio = torch.from_numpy(audio)
-        return [key, img, audio, audio_split]
+        audio = torch.cat([self.sndtransform(a.unsqueeze(0)) for a in audio])
+
+        lon = np.radians(sample.longitude)
+        lat = np.radians(sample.latitude)
+        x = np.cos(lat) * np.cos(lon)
+        y = np.cos(lat) * np.sin(lon)
+        z = np.sin(lat)
+        v = torch.from_numpy(np.stack([x, y, z])).float()
+
+        return [key, img, audio, audio_split, v]
 
     def __len__(self):
         return len(self.meta)

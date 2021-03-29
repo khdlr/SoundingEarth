@@ -8,34 +8,25 @@ from pathlib import Path
 from config import cfg
 
 
-def calculate_sound_embeddings(snd_encoder, loader_type, device):
-    loader = get_loader(mode=loader_type, batch_size=16, num_workers=8, max_samples=100)
-    keys, embeddings, splits = [], [], []
-    for key, img, snd, snd_split, distance in tqdm(loader, 'Sound Embeddings'):
-        embeddings.append(snd_encoder(snd.to(device)))
-        splits += list(snd_split)
+@torch.no_grad()
+def calculate_embeddings(model, loader_type, device):
+    loader = get_loader(mode=loader_type, batch_size=16, num_workers=4, max_samples=cfg.MaxSamples)
+    keys, Z_snd, Z_img = [], [], []
+    tf = model.loss_function.distance_transform
+    for key, img, snd, snd_split, distance in tqdm(loader, 'Embeddings'):
+        snd = snd.to(device)
+        img = img.to(device)
+
+        Z_snd.append(tf(model.snd_encoder(snd, snd_split)))
+        Z_img.append(tf(model.img_encoder(img)))
         keys.append(key)
 
     keys = np.concatenate(keys)
-    embeddings = torch.cat(embeddings)
+    Z_img = torch.cat(Z_img)
+    Z_snd = torch.cat(Z_snd)
+    print(Z_snd.shape)
 
-    return embeddings, splits, keys
-
-
-def calculate_image_embeddings(img_encoder, loader_type, device):
-    loader = get_loader(mode=loader_type, batch_size=16, num_workers=8)
-    keys = []
-    embeddings = []
-    i = 0
-    for key, img, snd, snd_split, distance in tqdm(loader, desc='Image Embeddings'):
-        z_img = img_encoder(img.to(device))
-        keys.append(key.numpy())
-        embeddings.append(z_img)
-
-    keys = np.concatenate(keys, axis=0)
-    embeddings = torch.cat(embeddings, dim=0)
-
-    return embeddings, keys
+    return keys, Z_img, Z_snd
 
 
 def evaluate(model, log_dir):
@@ -62,30 +53,20 @@ def evaluate(model, log_dir):
 
         return dist
 
-    torch.set_grad_enabled(False)
-
-    Z_img_raw, K_img = calculate_image_embeddings(model.img_encoder, 'test', dev)
-    Z_snd_raw, snd_split, K_snd = calculate_sound_embeddings(model.snd_encoder, 'test', dev)
-
-    M_img = []
-    M_snd = []
+    K, Z_img, Z_snd = calculate_embeddings(model, 'test', dev)
 
     # Match each sound against all audio
-    distance_matrix = np.zeros([len(K_snd), len(K_img)])
-    for i, z_snd in enumerate(torch.split(Z_snd_raw, snd_split)):
-        m_img, m_snd = model.matcher(Z_img_raw, z_snd, (z_snd.shape[0], ))
-        dists = torch.linalg.norm(
-            model.loss_function.distance_transform(m_img) - 
-            model.loss_function.distance_transform(m_snd),
-        ord=2, dim=2).cpu().numpy()
+    distance_matrix = np.zeros([len(K), len(K)])
+    for i in range(len(K)):
+        dists = torch.linalg.norm(Z_img - Z_snd[i].unsqueeze(0), ord=2, dim=1).cpu().numpy()
         distance_matrix[[i]] = dists
 
     distance_matrix = distance_matrix / distance_matrix.mean(axis=0, keepdims=True)
     # Evaluate Img2Sound
     results = []
-    for i_img, k_img in enumerate(tqdm(K_img, desc='Img2Sound')):
+    for i_img, k_img in enumerate(tqdm(K, desc='Img2Sound')):
         df = pd.DataFrame(dict(
-            k_snd = K_snd,
+            k_snd = K,
             dist = distance_matrix[:, i_img]
         )).set_index('k_snd')
 
@@ -119,7 +100,7 @@ def evaluate(model, log_dir):
     for k, v in i2s_metrics.items():
         tee(k, v)
 
-    x  = np.linspace(0, len(df), 200)
+    x  = np.linspace(0, len(df), 3000)
     data = [[t, (df['rank'] < t).mean()] for t in x]
     table = wandb.Table(data=data, columns = ["Threshold", "Recall"])
     i2s_metrics["Recall Curve"] = wandb.plot.line(table, "Threshold", "Recall", title="I2S Recall @ Threshold")
@@ -133,9 +114,9 @@ def evaluate(model, log_dir):
 
     # Evaluate Sound2Img
     results = []
-    for i_snd, k_snd in enumerate(tqdm(K_snd, desc='Sound2Img')):
+    for i_snd, k_snd in enumerate(tqdm(K, desc='Sound2Img')):
         df = pd.DataFrame(dict(
-            k_img = K_img,
+            k_img = K,
             dist = distance_matrix[i_snd, :]
         )).set_index('k_img')
 
@@ -164,7 +145,7 @@ def evaluate(model, log_dir):
     for k, v in s2i_metrics.items():
         tee(k, v)
 
-    x  = np.linspace(0, len(df), 200)
+    x  = np.linspace(0, len(df), 3000)
     data = [[t, (df['rank'] < t).mean()] for t in x]
     table = wandb.Table(data=data, columns = ["Threshold", "Recall"])
     s2i_metrics["Recall Curve"] = wandb.plot.line(table, "Threshold", "Recall", title="S2I Recall @ Threshold")

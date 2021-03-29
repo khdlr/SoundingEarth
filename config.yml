@@ -1,2 +1,7 @@
 # Config overrides for experiments
 DataRoot: /data/aporee/aporee
+LossFunction: BarlowTwins
+Epochs: 100
+# LossArg: [0.1, 0.00000001, 128]
+# SoundReducer: RandomAudioSample
+# MaxSamples: 1

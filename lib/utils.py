@@ -1,7 +1,23 @@
 import hashlib
 import numpy as np
 import torch.optim as opt
+import torch.nn as nn
 from . import models, loss_functions
+
+
+class TupleSequential(nn.Module):
+    def __init__(self, *modules):
+        super().__init__()
+        self.module_list = nn.ModuleList(modules)
+
+    def forward(self, *args):
+        for mod in self.module_list:
+            if type(args) is tuple:
+                args = mod(*args)
+            else:
+                args = mod(args)
+
+        return args
 
 
 def md5(obj):
@@ -10,11 +26,17 @@ def md5(obj):
     return hashlib.md5(obj).hexdigest()[:16]
 
 
-def get_model(model_name):
+def get_model(model_name, reducer=None, **kwargs):
     try:
-        return models.__dict__[model_name]
+        model = models.__dict__[model_name](**kwargs)
     except KeyError:
         raise ValueError(f'Can\'t provide Model called "{model_name}"')
+
+    if reducer is not None:
+        reducer = get_model(reducer)
+        model = TupleSequential(model, reducer)
+
+    return model
 
 
 def get_optimizer(name):
