@@ -1,4 +1,3 @@
-import h5py
 import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
@@ -8,6 +7,9 @@ from pathlib import Path
 from torchvision import transforms
 from sklearn.neighbors import NearestNeighbors
 from config import cfg
+
+LOW  = np.exp(-15 / 10)
+HIGH = np.exp(5 / 10)
 
 
 class AporeeDataset(Dataset):
@@ -25,42 +27,29 @@ class AporeeDataset(Dataset):
 
         if augment and 'image' in cfg.AugmentationMode:
             self.imgtransform = transforms.Compose([
+                transforms.RandomAffine(180, shear=30),
+                transforms.RandomResizedCrop(256, scale=(0.08, 0.33)),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
                 transforms.ToTensor(), normalize,
-                # transforms.RandomErasing()
             ])
         else:
             self.imgtransform = transforms.Compose([
+                transforms.CenterCrop(256),
                 transforms.ToTensor(), normalize
             ])
 
-        if augment and 'sound' in cfg.AugmentationMode:
-            self.sndtransform = transforms.Compose([
-                transforms.RandomCrop(size=128, padding=3),
-                # transforms.ColorJitter(brightness=0.1, contrast=0.1),
-                # transforms.RandomErasing()
-            ])
-        else:
-            self.sndtransform = lambda x: x
-
-
         # join and merge
-        img_present = set(int(f.stem) for f in (self.root).glob('images_small/*.jpg'))
+        img_present = set(int(f.stem) for f in (self.root).glob('images/*.jpg'))
         self.meta = self.meta[self.meta.key.isin(img_present)]
         self.meta = self.meta.merge(self.snd_meta, left_on='key', right_on='key', how='inner')
         self.meta = self.meta[self.meta.len != 0]
         if filter_fn:
             self.meta = self.meta[self.meta.key.apply(filter_fn)]
         self.meta = self.meta.reset_index(drop=True)
-        self.h5 = None
         self.key2idx = {v: i for i, v in enumerate(self.meta.key)}
         self.augment = augment
         print('Number of Samples:', len(self.meta))
-
-    def assert_open(self):
-        if self.h5 is None:
-            self.h5 = h5py.File(self.root / 'spectrograms.h5', 'r')
 
     def get_asymmetric_sampler(self, batch_size, asymmetry):
         lon = np.radians(self.meta.longitude.values)
@@ -93,16 +82,17 @@ class AporeeDataset(Dataset):
         sample = self.meta.iloc[idx]
         key = sample.key
 
-        img = Image.open(self.root / 'images_small' / f'{key}.jpg')
+        img = Image.open(self.root / 'images' / f'{key}.jpg')
         img = self.imgtransform(img)
 
-        self.assert_open()
-        h5idx = sample.start
-        audio_split = min(sample.len, self.maxlen)
-        idx = h5idx + int(torch.randint(0, sample.len-audio_split+1, []))
-        audio = self.h5['spectrogram'][idx:idx+audio_split]
+        audio = np.array(Image.open(self.root / 'spectrograms' / f'{key}.jpg')).astype(np.float32)
+        audio = audio * ((HIGH - LOW) / 255) + LOW
+
+        if audio.shape[1] > 128 * self.maxlen:
+            start = int(torch.randint(0, audio.shape[1] - 128*self.maxlen, []))
+            audio = audio[:, start:start+128*self.maxlen]
+        audio = audio.reshape(128, -1, 128).transpose(1, 0, 2)
         audio = torch.from_numpy(audio)
-        audio = torch.cat([self.sndtransform(a.unsqueeze(0)) for a in audio])
 
         lon = np.radians(sample.longitude)
         lat = np.radians(sample.latitude)
@@ -111,7 +101,7 @@ class AporeeDataset(Dataset):
         z = np.sin(lat)
         v = torch.from_numpy(np.stack([x, y, z])).float()
 
-        return [key, img, audio, audio_split, v]
+        return [key, img, audio, audio.shape[0], v]
 
     def __len__(self):
         return len(self.meta)
@@ -186,3 +176,12 @@ class Unnormalize:
 
     def __call__(self, tensor):
         return tensor.mul(self.std).add(self.mean)
+
+
+if __name__ == '__main__':
+    ds = AporeeDataset('/data/aporee/aporee', max_samples=50)
+    loader = DataLoader(ds)
+    from tqdm import tqdm
+    for i, _ in enumerate(tqdm(loader)):
+        if i > 100:
+            break

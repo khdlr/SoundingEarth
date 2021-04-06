@@ -107,14 +107,14 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
     def __init__(self, block, layers, input_dim, output_dim, zero_init_residual=False,
-                 groups=1, width_per_group=64, replace_stride_with_dilation=None,
+                 groups=1, width_per_group=32, replace_stride_with_dilation=None,
                  final_pool=True, norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
 
-        self.inplanes = 64
+        self.inplanes = 32
         self.dilation = 1
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
@@ -130,17 +130,17 @@ class ResNet(nn.Module):
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
+        self.layer1 = self._make_layer(block, 32, layers[0])
+        self.layer2 = self._make_layer(block, 64, layers[1], stride=2,
                                        dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+        self.layer3 = self._make_layer(block, 128, layers[2], stride=2,
                                        dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
+        self.layer4 = self._make_layer(block, 256, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
         if final_pool:
             self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.final_pool = final_pool
-        self.fc = nn.Conv2d(512 * block.expansion, output_dim, 1)
+        self.fc = nn.Conv2d(256 * block.expansion, output_dim, 1)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
