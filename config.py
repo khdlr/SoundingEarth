@@ -2,10 +2,10 @@ from yacs.config import CfgNode as CN
 
 cfg = CN()
 
-cfg.SoundEncoder = 'ResNet50'
+cfg.SoundEncoder = 'ResNet18'
 cfg.SoundReducer = 'SoundMeanPool'
 
-cfg.ImageEncoder = 'ResNet50'
+cfg.ImageEncoder = 'ResNet18'
 cfg.ImageReducer = 'ImageMeanPool'
 
 cfg.LossFunction = 'TripletLoss'
@@ -17,10 +17,10 @@ cfg.LocalizedSampling = False
 
 cfg.DataRoot = './data'
 
-cfg.MaxSamples = 50
+cfg.MaxSamples = 25
 cfg.Epochs = 100
 cfg.BatchSize = 32
-cfg.DataThreads = 4
+cfg.DataThreads = 8
 cfg.AugmentationMode = 'image'
 
 cfg.Optimizer = CN()
