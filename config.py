@@ -14,13 +14,12 @@ cfg.LatentDim    = 128
 
 cfg.MarginScaling = False
 cfg.LocalizedSampling = False
-
 cfg.DataRoot = './data'
 
 cfg.MaxSamples = 25
 cfg.Epochs = 100
 cfg.BatchSize = 32
-cfg.DataThreads = 8
+cfg.DataThreads = 2
 cfg.AugmentationMode = 'image'
 
 cfg.Optimizer = CN()

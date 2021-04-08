@@ -1,10 +1,11 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+# import cv2
 from PIL import Image
 import pandas as pd
 from pathlib import Path
-from torchvision import transforms
+import albumentations as A
 from sklearn.neighbors import NearestNeighbors
 from config import cfg
 
@@ -20,27 +21,31 @@ class AporeeDataset(Dataset):
 
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
-        normalize = transforms.Normalize(mean=mean, std=std)
         self.unnormalize = Unnormalize(mean=mean, std=std)
         self.maxlen = max_samples
 
         if augment and 'image' in cfg.AugmentationMode:
-            self.imgtransform = transforms.Compose([
-                transforms.RandomAffine(180, shear=30),
-                transforms.RandomResizedCrop(256, scale=(0.08, 0.33)),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomVerticalFlip(),
-                transforms.ToTensor(), normalize,
+            self.imgtransform = A.Compose([
+                A.CenterCrop(512, 512),
+                A.RandomResizedCrop(192, 192, scale=[0.5, 1.0]),
+                A.Rotate(limit=180, p=1.0),
+                A.Blur(blur_limit=3),
+                A.GridDistortion(),
+                A.HueSaturationValue(),
+                A.Normalize(),
             ])
         else:
-            self.imgtransform = transforms.Compose([
-                transforms.CenterCrop(256),
-                transforms.ToTensor(), normalize
+            self.imgtransform = A.Compose([
+                A.CenterCrop(384, 384),
+                A.Resize(192, 192),
+                A.Normalize()
             ])
 
         # join and merge
         img_present = set(int(f.stem) for f in (self.root).glob('images/*.jpg'))
-        self.meta = self.meta[self.meta.key.isin(img_present)]
+        snd_present = set(int(f.stem) for f in (self.root).glob('spectrograms/*.jpg'))
+        self.meta = self.meta[self.meta.key.isin(img_present) &
+                              self.meta.key.isin(snd_present)]
         if filter_fn:
             self.meta = self.meta[self.meta.key.apply(filter_fn)]
         self.meta = self.meta.reset_index(drop=True)
@@ -79,10 +84,13 @@ class AporeeDataset(Dataset):
         sample = self.meta.iloc[idx]
         key = sample.key
 
-        img = Image.open(self.root / 'images' / f'{key}.jpg')
-        img = self.imgtransform(img)
+        # img = cv2.imread(str(self.root / 'images' / f'{key}.jpg'))
+        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # img = np.array(Image.open(selflroot / 'image' f'{key}.jpg'))
+        img = self.imgtransform(image=img)['image']
+        img = torch.from_numpy(img).permute(2, 0, 1)
 
-        audio = np.array(Image.open(self.root / 'spectrograms' / f'{key}.jpg')).astype(np.float32)
+        audio = cv2.imread(str(self.root / 'spectrograms' / f'{key}.jpg')).astype(np.float32)
         audio = audio * ((HIGH - LOW) / 255) + LOW
 
         if audio.shape[1] > 128 * self.maxlen:
@@ -156,7 +164,8 @@ def get_loader(batch_size, mode, num_workers=4, asymmetry=0, max_samples=100):
         num_workers = num_workers,
         shuffle = is_train,
         collate_fn = dataset.collate,
-        drop_last = True
+        drop_last = True,
+        prefetch_factor=2
     )
     if asymmetry != 0:
         loader_args['batch_sampler'] = dataset.get_asymmetric_sampler(batch_size, asymmetry)
