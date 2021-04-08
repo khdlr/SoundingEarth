@@ -2,7 +2,10 @@ import hashlib
 import numpy as np
 import torch.optim as opt
 import torch.nn as nn
-import apex
+try:
+    import apex
+except ImportError:
+    pass
 from . import models, loss_functions
 
 
@@ -48,6 +51,8 @@ def get_optimizer(name):
             print('apex optimizer chosen')
             return apex.optimizers.__dict__[name]
         except KeyError:
+            raise ValueError(f'Can\'t provide Optimizer called "{name}"')
+        except NameError:
             raise ValueError(f'Can\'t provide Optimizer called "{name}"')
 
 

@@ -24,7 +24,7 @@ cfg.DataThreads = 8
 cfg.AugmentationMode = 'image'
 
 cfg.Optimizer = CN()
-cfg.Optimizer.Name = 'FusedAdam'
+cfg.Optimizer.Name = 'Adam'
 cfg.Optimizer.LearningRate = 1e-3
 
 cfg.RunId = ''

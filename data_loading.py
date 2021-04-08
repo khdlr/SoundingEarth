@@ -17,7 +17,6 @@ class AporeeDataset(Dataset):
         super().__init__()
         self.root = Path(root)
         self.meta = pd.read_csv(self.root / 'metadata.csv')
-        self.snd_meta = pd.read_csv(self.root / 'keyoffsets.csv')
 
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
@@ -42,8 +41,6 @@ class AporeeDataset(Dataset):
         # join and merge
         img_present = set(int(f.stem) for f in (self.root).glob('images/*.jpg'))
         self.meta = self.meta[self.meta.key.isin(img_present)]
-        self.meta = self.meta.merge(self.snd_meta, left_on='key', right_on='key', how='inner')
-        self.meta = self.meta[self.meta.len != 0]
         if filter_fn:
             self.meta = self.meta[self.meta.key.apply(filter_fn)]
         self.meta = self.meta.reset_index(drop=True)
