@@ -1,8 +1,8 @@
 # Config overrides for experiments
-DataRoot: /data/aporee/aporee
-DataThreads: 6
+DataRoot: /home/user/geoaudio/aporee
+DataThreads: 24
+BatchSize: 128
+
+ImageEncoder: ResNet34
 SoundReducer: RandomAudioSample
 MaxSamples: 1
-
-# LossArg: [0.1, 0.00000001, 128]
-# SoundReducer: RandomAudioSample

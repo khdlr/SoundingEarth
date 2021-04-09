@@ -12,7 +12,7 @@ from config import cfg, state
 from data_loading import get_loader
 
 from einops import rearrange
-
+import argparse
 
 def full_forward(model, key, img, snd, snd_split, points, metrics):
     img = img.to(dev)
@@ -104,11 +104,19 @@ def val_epoch(model, data_loader, metrics):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        cfg.merge_from_file(sys.argv[1])
-    else:
-        cfg.merge_from_file("config.yml")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('config', nargs='?', type=Path, default=Path('config.yml'),
+            help='path of config file to use')
+    parser.add_argument('--gpu', default=0, type=int, help='index of GPU to use')
+    args = parser.parse_args()
+    cfg.merge_from_file(args.config)
     cfg.freeze()
+
+    if torch.cuda.is_available():
+        dev = torch.device(f'cuda:{args.gpu}')
+    else:
+        dev = torch.device('cpu')
+    print(f'Training on {dev} device')
 
     img_encoder   = get_model(cfg.ImageEncoder, reducer=cfg.ImageReducer,
         input_dim=3, output_dim=cfg.LatentDim, final_pool=False
@@ -117,11 +125,8 @@ if __name__ == "__main__":
         input_dim=1, output_dim=cfg.LatentDim, final_pool=True
     )
     loss_function = get_loss_function(cfg.LossFunction)(*cfg.LossArg)
-    model = FullModelWrapper(img_encoder, snd_encoder, loss_function)
 
-    dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
-    print(f'Training on {dev} device')
-    model = model.to(dev)
+    model = FullModelWrapper(img_encoder, snd_encoder, loss_function).to(dev)
 
     opt = get_optimizer(cfg.Optimizer.Name)(model.parameters(), lr=cfg.Optimizer.LearningRate)
 
@@ -145,22 +150,22 @@ if __name__ == "__main__":
     with open(log_dir / 'config.yml', 'w') as f:
         print(cfg.dump(), file=f)
 
-    train_data = get_loader(cfg.BatchSize, num_workers=cfg.DataThreads, mode='train')
-    val_data = get_loader(cfg.BatchSize, num_workers=cfg.DataThreads, mode='val')
+    train_data = get_loader(cfg.BatchSize, num_workers=cfg.DataThreads, mode='train', max_samples=cfg.MaxSamples)
+    val_data = get_loader(cfg.BatchSize, num_workers=cfg.DataThreads, mode='val', max_samples=cfg.MaxSamples)
 
     metrics = Metrics()
     for epoch in range(cfg.Epochs):
         print(f'Starting epoch "{epoch}"')
         train_epoch(model, train_data, metrics)
         val_epoch(model, val_data, metrics)
-    evaluate(model, log_dir)
+    evaluate(model, log_dir, dev)
 
     from downstream.aid import evaluate_aid
-    evaluate_aid(model)
+    evaluate_aid(model, dev)
 
     from downstream.aid_few_shot import evaluate_aid_few_shot
-    evaluate_aid_few_shot(model)
+    evaluate_aid_few_shot(model, dev)
 
     from downstream.advance import evaluate_advance
-    evaluate_advance(model)
+    evaluate_advance(model, dev)
 

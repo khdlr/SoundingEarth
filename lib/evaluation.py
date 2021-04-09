@@ -29,9 +29,10 @@ def calculate_embeddings(model, loader_type, device):
     return keys, Z_img, Z_snd
 
 
-def evaluate(model, log_dir):
+def evaluate(model, log_dir, dev=None):
     print('Doing final Evaluation...')
-    dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
+    if dev is None:
+        dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
     meta = pd.read_csv(Path(cfg.DataRoot) / 'metadata.csv')
     key2idx = {v: i for i, v in enumerate(meta.key)}
 

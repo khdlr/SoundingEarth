@@ -30,7 +30,7 @@ def md5(obj):
     return hashlib.md5(obj).hexdigest()[:16]
 
 
-def get_model(model_name, reducer=None, **kwargs):
+def get_model(model_name, reducer=None, parallel=False, **kwargs):
     try:
         model = models.__dict__[model_name](**kwargs)
     except KeyError:
