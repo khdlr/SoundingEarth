@@ -86,11 +86,12 @@ class AporeeDataset(Dataset):
 
         # img = cv2.imread(str(self.root / 'images' / f'{key}.jpg'))
         # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        # img = np.array(Image.open(selflroot / 'image' f'{key}.jpg'))
+        img = np.array(Image.open(self.root / 'images' / f'{key}.jpg'))
         img = self.imgtransform(image=img)['image']
         img = torch.from_numpy(img).permute(2, 0, 1)
 
-        audio = cv2.imread(str(self.root / 'spectrograms' / f'{key}.jpg')).astype(np.float32)
+        # audio = cv2.imread(str(self.root / 'spectrograms' / f'{key}.jpg')).astype(np.float32)
+        audio = np.array(Image.open(self.root / 'spectrograms' / f'{key}.jpg')).astype(np.float32)
         audio = audio * ((HIGH - LOW) / 255) + LOW
 
         if audio.shape[1] > 128 * self.maxlen:
