@@ -2,8 +2,7 @@ import sys
 import copy
 import numpy as np
 import pandas as pd
-from argparse import ArgumentParser
-from pathlib import Path
+from argparse import ArgumentParser from pathlib import Path
 from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
@@ -60,8 +59,9 @@ class Normalizer(nn.Module):
 
 
 @torch.no_grad()
-def validate(model, val_loader, epoch):
-    dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
+def validate(model, val_loader, epoch, dev=None):
+    if dev is None:
+        dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
 
     print(f'Valid Epoch {epoch}')
     model.eval()
@@ -111,12 +111,13 @@ def from_resnet(pretrained=False):
     )
 
 
-def evaluate_aid(model):
-    evaluate_model(copy.deepcopy(model.img_encoder))
+def evaluate_aid(model, dev):
+    evaluate_model(copy.deepcopy(model.img_encoder), dev)
 
 
-def evaluate_model(encoder):
-    dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
+def evaluate_model(encoder, dev=None):
+    if dev is None:
+        dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
 
     # Add final layer
     encoder = encoder.to(dev)

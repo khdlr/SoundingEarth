@@ -26,8 +26,9 @@ from config import cfg
 LOW  = np.exp(-15 / 10)
 HIGH = np.exp(5 / 10)
 
-def evaluate_advance(model):
-    dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
+def evaluate_advance(model, dev=None):
+    if dev is None:
+        dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
 
     img_encoder = model.img_encoder
     snd_encoder = model.snd_encoder

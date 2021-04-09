@@ -25,8 +25,9 @@ sys.path.append(str(root.absolute()))
 from lib import get_model, get_loss_function, FullModelWrapper
 from config import cfg
 
-def evaluate_aid_few_shot(model):
-    dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
+def evaluate_aid_few_shot(model, dev=None):
+    if dev is None:
+        dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
 
     data_root = Path(__file__).parent / 'data/AID'
 
