@@ -4,7 +4,7 @@ DataThreads: 12
 Epochs: 300
 BatchSize: 256
 
-LossFunction: SymmetricCL
+LossFunction: NaiveTriplet
 ImageEncoder: ResNet18
 SoundReducer: RandomAudioSample
 MaxSamples: 1

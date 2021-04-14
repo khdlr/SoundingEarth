@@ -25,6 +25,20 @@ class TripletLoss(nn.Module):
         return 0.5 * (d1 + d2)
 
 
+class NaiveTriplet(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def distance_transform(self, x, dim=1):
+        return x
+
+    def forward(self, img, snd, v=None):
+        d_true = torch.linalg.norm(img - snd, ord=2, dim=-1)
+        d_false = torch.linalg.norm(img - torch.roll(snd, 1, dims=0), ord=2, dim=-1)
+
+        return torch.mean(F.relu(d_true - d_false + 1.0))
+
+
 class BarlowTwins(nn.Module):
     def __init__(self, lambda_=5e-3, reg=0.1):
         super().__init__()
@@ -222,35 +236,7 @@ class SymmetricCLWithMemoryAndDistillation(nn.Module):
 
         return loss
 
-
-class ContrastiveLoss02(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def distance_transform(self, x, dim=-1):
-        return x / torch.linalg.norm(x, ord=2, dim=dim, keepdim=True)
-
-    def forward(self, x, y, margin=torch.ones([])):
-        sim = F.cosine_similarity(x, y, dim=-1)
-        logsoftmax = torch.log_softmax(sim / 0.2, dim=1)
-        loss = -torch.mean(torch.diag(logsoftmax))
-        return loss
-
-
-class SymmetricCL02(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def distance_transform(self, x, dim=-1):
-        return x / torch.linalg.norm(x, ord=2, dim=dim, keepdim=True)
-
-    def forward(self, x, y, margin=torch.ones([])):
-        sim = F.cosine_similarity(x, y, dim=-1)
-        logsoftmax0 = torch.log_softmax(sim / 0.2, dim=0)
-        logsoftmax1 = torch.log_softmax(sim / 0.2, dim=1)
-        loss = -torch.mean(torch.diag(logsoftmax0)) - torch.mean(torch.diag(logsoftmax1))
-        return loss
-
+###### Loss Functions below are old code and won't work currently
 
 class EuclideanContrastiveLoss(nn.Module):
     def __init__(self):
