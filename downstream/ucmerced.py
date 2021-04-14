@@ -152,7 +152,7 @@ if __name__ == '__main__':
     elif args.model == 'random':
         print('Using random weights')
         encoder = from_resnet(args.backbone, pretrained=False)
-        wandb.init(project='Audiovisual', name='Random RN{args.backbone[-2:]}')
+        wandb.init(project='Audiovisual', name=f'Random RN{args.backbone[-2:]}')
     else:
         print('Using pre-trained weights')
         cfg.merge_from_file(Path(args.model) / 'config.yml')
