@@ -2,11 +2,11 @@ import sys
 import copy
 import numpy as np
 import pandas as pd
-from argparse import ArgumentParser from pathlib import Path
+from argparse import ArgumentParser
+from pathlib import Path
 from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
-import lightgbm as lgb
 import pickle
 import wandb
 
@@ -15,7 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision.datasets import ImageFolder
-from torchvision.models import resnet18
+import torchvision.models as tv_models
 
 import sys
 root = Path(__file__).parent.parent
@@ -59,10 +59,7 @@ class Normalizer(nn.Module):
 
 
 @torch.no_grad()
-def validate(model, val_loader, epoch, dev=None):
-    if dev is None:
-        dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
-
+def validate(model, val_loader, epoch, dev):
     print(f'Valid Epoch {epoch}')
     model.eval()
     res = []
@@ -77,12 +74,10 @@ def validate(model, val_loader, epoch, dev=None):
     res = torch.cat(res).float()
     oa = res.mean()
     print(f'Epoch {epoch}: {oa:.4f}')
-    wandb.log({f'AID/Accuracy @ {epoch}': oa})
+    wandb.log({f'AID/Accuracy': oa, '_aid_epoch': epoch})
 
 
-def train(model, trn_loader, opt, epoch):
-    dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
-
+def train(model, trn_loader, opt, epoch, dev):
     print(f'Train Epoch {epoch}')
     model.train()
     for img, label in tqdm(trn_loader):
@@ -96,8 +91,9 @@ def train(model, trn_loader, opt, epoch):
         opt.step()
 
 
-def from_resnet(pretrained=False):
-    resnet = resnet18(pretrained=pretrained)
+def from_resnet(resnet_type, pretrained=False):
+    resnet_class = getattr(tv_models, resnet_type)
+    resnet = resnet_class(pretrained=pretrained)
     return nn.Sequential(
         resnet.conv1,
         resnet.bn1,
@@ -133,37 +129,28 @@ def evaluate_model(encoder, dev=None):
     trn_data, val_data = get_data()
     epoch = 0
 
-    ## Last-layer-only pretraining
-    for param in encoder.parameters():
-        param.requires_grad = False
-    opt = torch.optim.Adam(last_layer.parameters())
-    train(model, trn_data, opt, epoch)
-    train(model, trn_data, opt, epoch)
-    train(model, trn_data, opt, epoch)
-
-    validate(model, val_data, epoch)
-
     for param in model.parameters():
         param.requires_grad = True
     opt = torch.optim.Adam(model.parameters())
     for epoch in range(1, 6):
-        train(model, trn_data, opt, epoch)
-        validate(model, val_data, epoch)
+        train(model, trn_data, opt, epoch, dev)
+        validate(model, val_data, epoch, dev)
 
 
 if __name__ == '__main__':
     dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
     parser = ArgumentParser(description='Test Advance Data')
     parser.add_argument("model", type=str, help='folder containing the trained model')
+    parser.add_argument("backbone", type=str, choices=['resnet18', 'resnet50'], help='backbone model to use', default='resnet18')
     args = parser.parse_args()
 
     if args.model == 'imagenet':
         print('Using imagenet weights')
         wandb.init(project='Audiovisual', name='ImageNet')
-        encoder = from_resnet(pretrained=True)
+        encoder = from_resnet(args.backbone, pretrained=True)
     elif args.model == 'random':
         print('Using random weights')
-        encoder = from_resnet(pretrained=False)
+        encoder = from_resnet(args.backbone, pretrained=False)
         wandb.init(project='Audiovisual', name='Random')
     else:
         print('Using pre-trained weights')

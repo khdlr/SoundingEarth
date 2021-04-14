@@ -80,11 +80,6 @@ def train_epoch(model, data_loader, metrics):
     wandb.log(m, step=state.BoardIdx)
     wandb.log
 
-    # Save model Checkpoint
-    if state.Epoch % 20 == 0:
-        torch.save(model.state_dict(), checkpoints / f'{state.Epoch:02d}.pt')
-        torch.save(model.state_dict(), checkpoints / 'latest.pt')
-
 
 @torch.no_grad()
 def val_epoch(model, data_loader, metrics):
@@ -101,6 +96,19 @@ def val_epoch(model, data_loader, metrics):
     for h in metrics_hist:
         m[f'val/{h}'] = wandb.Histogram(np_histogram=metrics_hist[h])
     wandb.log(m, step=state.BoardIdx)
+
+    # Save model Checkpoint
+    if state.Epoch % 20 == 0:
+        torch.save(model.state_dict(), checkpoints / f'{state.Epoch:02d}.pt')
+    torch.save(model.state_dict(), checkpoints / 'latest.pt')
+
+    if metrics_vals['Loss'] < state.BestLoss:
+        print(f'Saving Checkpoint at Epoch {state.epoch} as best one yet!')
+        state.BestLoss = metrics_vals['Loss']
+        state.BestEpoch = state.Epoch
+        torch.save(model.state_dict(), checkpoints / f'best.pt')
+
+    return state.BestEpoch + cfg.EarlyStopping < state.Epoch
 
 
 if __name__ == "__main__":
@@ -157,15 +165,23 @@ if __name__ == "__main__":
     for epoch in range(cfg.Epochs):
         print(f'Starting epoch "{epoch}"')
         train_epoch(model, train_data, metrics)
-        val_epoch(model, val_data, metrics)
+        stop_early = val_epoch(model, val_data, metrics)
+        if stop_early:
+            print(f'Stopping Early after {cfg.EarlyStopping} epochs without improvement')
+            break
+
+    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
     evaluate(model, log_dir, dev)
 
+    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
     from downstream.aid import evaluate_aid
     evaluate_aid(model, dev)
 
+    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
     from downstream.aid_few_shot import evaluate_aid_few_shot
     evaluate_aid_few_shot(model, dev)
 
+    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
     from downstream.advance import evaluate_advance
     evaluate_advance(model, dev)
 

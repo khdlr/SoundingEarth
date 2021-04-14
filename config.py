@@ -18,6 +18,7 @@ cfg.DataRoot = './data'
 
 cfg.MaxSamples = 25
 cfg.Epochs = 100
+cfg.EarlyStopping = float('inf')
 cfg.BatchSize = 32
 cfg.DataThreads = 2
 cfg.AugmentationMode = 'image'
@@ -32,4 +33,5 @@ cfg.RunId = ''
 state = CN()
 state.Epoch = 0
 state.BoardIdx = 0
-
+state.BestLoss = float('inf')
+state.BestEpoch = -10000

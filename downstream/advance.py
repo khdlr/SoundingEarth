@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
-import lightgbm as lgb
 import pickle
 import wandb
 
@@ -122,7 +121,7 @@ def evaluate_advance(model, dev=None):
                 penalty = 'none'
             else:
                 penalty = 'l2'
-            lr = LogisticRegression(multi_class='multinomial', max_iter=500000, penalty=penalty)
+            lr = LogisticRegression(multi_class='multinomial', max_iter=500000, penalty=penalty, n_jobs=1)
             lr.fit(Z_trn, lbl_trn)
             prediction = lr.predict(Z_test)
 
