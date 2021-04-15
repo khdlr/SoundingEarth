@@ -134,7 +134,6 @@ def evaluate_advance(model, dev=None):
             results.append(res)
 
     df = pd.DataFrame(results)
-    df.to_csv(Path(__file__).parent / 'results_lr.csv', index=False)
     pd.options.display.float_format = lambda x: f'{100*x:.2f}%'
 
     metrics = dict(df[df.data == 'concat'].mean())
@@ -172,5 +171,5 @@ if __name__ == '__main__':
     model = model.to(dev)
     model.eval()
 
-    model.load_state_dict(torch.load(args.model / 'checkpoints/latest.pt'))
+    model.load_state_dict(torch.load(args.model / 'checkpoints/best.pt'))
     evaluate_advance(model)

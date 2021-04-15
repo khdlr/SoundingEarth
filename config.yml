@@ -5,6 +5,6 @@ Epochs: 300
 BatchSize: 256
 
 LossFunction: NaiveTriplet
-ImageEncoder: ResNet18
+ImageEncoder: ResNet50
 SoundReducer: RandomAudioSample
 MaxSamples: 1
