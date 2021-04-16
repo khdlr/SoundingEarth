@@ -9,29 +9,28 @@ from lib import get_optimizer, get_model, get_loss_function, Metrics
 from lib.models import FullModelWrapper
 from lib.evaluation import evaluate
 from config import cfg, state
-from data_loading import get_loader
+from img_data_loading import get_loader
 
 from einops import rearrange
 import argparse
 
-def full_forward(model, key, img, snd, snd_split, points, metrics):
-    img = img.to(dev)
-    snd = snd.to(dev)
-    points = points.to(dev)
+def full_forward(model, key, img_1, img_2, points, metrics):
+    img_1 = img_1.to(dev)
+    img_2 = img_2.to(dev)
 
-    Z_img = model.img_encoder(img)
-    Z_snd = model.snd_encoder(snd, snd_split)
+    Z_1 = model.img_encoder(img_1)
+    Z_2 = model.img_encoder(img_2)
 
-    loss = model.loss_function(Z_img, Z_snd, points)
+    loss = model.loss_function(Z_1, Z_2, points)
 
     with torch.no_grad():
-        Z_img = model.loss_function.distance_transform(Z_img, dim=1)
-        Z_snd = model.loss_function.distance_transform(Z_snd, dim=1)
+        Z_1 = model.loss_function.distance_transform(Z_1, dim=1)
+        Z_2 = model.loss_function.distance_transform(Z_2, dim=1)
 
-        Z_img = rearrange(Z_img, '(i a) d -> i a d', a=1)
-        Z_snd = rearrange(Z_snd, '(i a) d -> i a d', i=1)
+        Z_1 = rearrange(Z_1, '(i a) d -> i a d', a=1)
+        Z_2 = rearrange(Z_2, '(i a) d -> i a d', i=1)
 
-        d_matrix = torch.linalg.norm(Z_img - Z_snd, ord=2, dim=2)
+        d_matrix = torch.linalg.norm(Z_1 - Z_2, ord=2, dim=2)
 
         rk_i2s = 1.0 + d_matrix.argsort(dim=0).argsort(dim=0).diag().float()
         rk_s2i = 1.0 + d_matrix.argsort(dim=1).argsort(dim=1).diag().float()
@@ -113,7 +112,7 @@ def val_epoch(model, data_loader, metrics):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('config', nargs='?', type=Path, default=Path('config.yml'),
+    parser.add_argument('config', nargs='?', type=Path, default=Path('img_config.yml'),
             help='path of config file to use')
     parser.add_argument('--gpu', default=0, type=int, help='index of GPU to use')
     args = parser.parse_args()
@@ -165,19 +164,3 @@ if __name__ == "__main__":
         if stop_early:
             print(f'Stopping Early after {cfg.EarlyStopping} epochs without improvement')
             break
-
-    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
-    evaluate(model, log_dir, dev)
-
-    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
-    from downstream.aid import evaluate_aid
-    evaluate_aid(model, dev)
-
-    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
-    from downstream.aid_few_shot import evaluate_aid_few_shot
-    evaluate_aid_few_shot(model, dev)
-
-    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
-    from downstream.advance import evaluate_advance
-    evaluate_advance(model, dev)
-

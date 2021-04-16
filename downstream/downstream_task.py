@@ -77,7 +77,7 @@ class DownstreamTask(metaclass=ABCMeta):
             loss_function = get_loss_function(cfg.LossFunction)(*cfg.LossArg)
             full_model = FullModelWrapper(img_encoder, snd_encoder, loss_function)
             full_model = full_model.to(dev)
-            full_model.load_state_dict(torch.load(Path(args.model) / 'checkpoints/best.pt'))
+            full_model.load_state_dict(torch.load(Path(args.model) / 'checkpoints/latest.pt'))
 
             encoder = nn.Sequential(full_model.img_encoder, Normalizer(full_model.loss_function))
             assert cfg.RunId != ''
@@ -163,8 +163,12 @@ def from_resnet(resnet_type, pretrained=False):
 
 
 class SnoopShape(nn.Module):
+    def __init__(self, name=''):
+        super().__init__()
+        self.name = name
+
     def forward(self, x):
-        print(x.shape)
+        print(self.name, x.shape)
         return x
 
 
@@ -174,7 +178,16 @@ def from_tile2vec():
     net.conv1.weight = torch.nn.Parameter(net.conv1.weight[:, :3])
     net.conv1.in_channels = 3
     net.supervised = False
-    encoder = nn.Sequential(net, SnoopShape(), nn.AdaptiveAvgPool2d([1, 1]))
+    encoder = nn.Sequential(
+            net.conv1, net.bn1, nn.ReLU(),
+        net.layer1,
+        net.layer2,
+        net.layer3,
+        net.layer4,
+        net.layer5,
+        nn.AdaptiveAvgPool2d([1, 1])
+    )
+       
     return encoder
 
 

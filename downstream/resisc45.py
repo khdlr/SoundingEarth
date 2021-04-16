@@ -7,7 +7,7 @@ from torchvision.datasets import ImageFolder
 
 class Resisc45(DownstreamTask):
     def name(self):
-        return 'Resisc45Test'
+        return 'NWPU Resisc45'
 
     def n_classes(self):
         return 45
@@ -18,8 +18,7 @@ class Resisc45(DownstreamTask):
         normalize = transforms.Normalize(mean=mean, std=std)
         imgtransform = transforms.Compose([
             transforms.ToTensor(),
-            normalize,
-            transforms.Lambda(lambda x: F.avg_pool2d(x.unsqueeze(0), 2).squeeze(0))
+            normalize
         ])
 
         all_data = ImageFolder('downstream/data/NWPU-RESISC45/', transform=imgtransform)
@@ -30,8 +29,8 @@ class Resisc45(DownstreamTask):
         trn_data = Subset(all_data, trn_index)
         val_data = Subset(all_data, val_index)
 
-        trn_loader = DataLoader(trn_data, batch_size=64, pin_memory=True, num_workers=4, shuffle=True)
-        val_loader = DataLoader(val_data, batch_size=64, pin_memory=True, num_workers=4)
+        trn_loader = DataLoader(trn_data, batch_size=48, pin_memory=True, num_workers=4, shuffle=True)
+        val_loader = DataLoader(val_data, batch_size=48, pin_memory=True, num_workers=4)
 
         return trn_loader, val_loader
 
