@@ -76,6 +76,34 @@ class BarlowTwins(nn.Module):
         return loss + self.reg_strength * reg
 
 
+class SymmetricSimCLR(nn.Module):
+    def __init__(self, tau=0.2):
+        super().__init__()
+        self.tau = tau
+        self.g = nn.Sequential(
+            nn.Linear(128, 512), nn.ReLU(),
+            nn.Linear(512, 128)
+        )
+
+    def distance_transform(self, x, dim=1):
+        return x
+
+    def forward(self, img, snd, v=None):
+        img = self.g(img)
+        snd = self.g(snd)
+
+        img = rearrange(img, '(i a) d -> i a d', a=1)
+        snd = rearrange(snd, '(i a) d -> i a d', i=1)
+
+        sim = F.cosine_similarity(img, snd, dim=-1) / self.tau
+
+        logsoftmax0 = torch.log_softmax(sim, dim=0)
+        logsoftmax1 = torch.log_softmax(sim, dim=1)
+        loss = -torch.mean(torch.diag(logsoftmax0)) - torch.mean(torch.diag(logsoftmax1))
+        return loss
+
+
+
 class SimCLRLoss(nn.Module):
     def __init__(self, tau=0.2):
         super().__init__()
