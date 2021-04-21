@@ -166,18 +166,6 @@ if __name__ == "__main__":
             print(f'Stopping Early after {cfg.EarlyStopping} epochs without improvement')
             break
 
-    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
+    model.load_state_dict(torch.load(checkpoints / 'latest.pt'))
     evaluate(model, log_dir, dev)
-
-    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
-    from downstream.aid import evaluate_aid
-    evaluate_aid(model, dev)
-
-    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
-    from downstream.aid_few_shot import evaluate_aid_few_shot
-    evaluate_aid_few_shot(model, dev)
-
-    model.load_state_dict(torch.load(checkpoints / 'best.pt'))
-    from downstream.advance import evaluate_advance
-    evaluate_advance(model, dev)
 
