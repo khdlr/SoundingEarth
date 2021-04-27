@@ -5,7 +5,7 @@ from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
-class Resisc45(DownstreamTask):
+class UCMerced(DownstreamTask):
     def name(self):
         return 'UC Merced Land Use'
 
@@ -36,4 +36,4 @@ class Resisc45(DownstreamTask):
         return trn_loader, val_loader
 
 if __name__ == '__main__':
-    Resisc45().run_as_main()
+    UCMerced().run_as_main()
