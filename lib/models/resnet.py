@@ -211,6 +211,18 @@ class ResNet(nn.Module):
         else:
             return x
 
+    def get_features(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+
 
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
     if pretrained:

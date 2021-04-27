@@ -49,20 +49,20 @@ class DownstreamTask(metaclass=ABCMeta):
             print('Using imagenet weights')
             runid = f'imagenet-rn{args.backbone[-2:]}'
             wandb.init(project='Audiovisual', name=f'ImageNet RN{args.backbone[-2:]}',
-                    resume=runid)
+                   resume='allow', id=runid)
             encoder = from_resnet(args.backbone, pretrained=True)
         elif args.model == 'random':
             print('Using random weights')
             runid = f'random-rn{args.backbone[-2:]}'
             encoder = from_resnet(args.backbone, pretrained=False)
             wandb.init(project='Audiovisual', name=f'Random RN{args.backbone[-2:]}',
-                    resume=runid)
+                    resume='allow', id=runid)
         elif args.model == 'tile2vec':
             print('Using Tile2Vec weights')
             encoder = from_tile2vec()
             runid = f'tile2vec'
             wandb.init(project='Audiovisual', name=f'Tile2Vec RN18',
-                    resume=runid)
+                    resume='allow', id=runid)
         else:
             print('Using pre-trained weights')
             cfg.merge_from_file(Path(args.model) / 'config.yml')
@@ -81,8 +81,9 @@ class DownstreamTask(metaclass=ABCMeta):
 
             encoder = nn.Sequential(full_model.img_encoder, Normalizer(full_model.loss_function))
             assert cfg.RunId != ''
-            wandb.init(project='Audiovisual', resume=cfg.RunId)
-        self.evaluate_model(encoder)
+            wandb.init(project='Audiovisual', resume='must', id=cfg.RunId)
+        encoder = encoder.to(dev)
+        self.evaluate_model(encoder, dev)
 
 
     @torch.no_grad()
@@ -179,7 +180,7 @@ def from_tile2vec():
     net.conv1.in_channels = 3
     net.supervised = False
     encoder = nn.Sequential(
-            net.conv1, net.bn1, nn.ReLU(),
+        net.conv1, net.bn1, nn.ReLU(),
         net.layer1,
         net.layer2,
         net.layer3,

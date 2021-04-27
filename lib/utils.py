@@ -23,6 +23,9 @@ class TupleSequential(nn.Module):
 
         return args
 
+    def __getitem__(self, idx):
+        return self.module_list[idx]
+
 
 def md5(obj):
     if type(obj) is not str:
