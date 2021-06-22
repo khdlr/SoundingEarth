@@ -222,6 +222,7 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
+        return x
 
 
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
