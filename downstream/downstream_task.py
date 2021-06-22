@@ -77,7 +77,7 @@ class DownstreamTask(metaclass=ABCMeta):
             loss_function = get_loss_function(cfg.LossFunction)(*cfg.LossArg)
             full_model = FullModelWrapper(img_encoder, snd_encoder, loss_function)
             full_model = full_model.to(dev)
-            full_model.load_state_dict(torch.load(Path(args.model) / 'checkpoints/latest.pt'))
+            full_model.load_state_dict(torch.load(Path(args.model) / 'checkpoints/latest.pt', map_location=dev))
 
             encoder = nn.Sequential(full_model.img_encoder, Normalizer(full_model.loss_function))
             assert cfg.RunId != ''
