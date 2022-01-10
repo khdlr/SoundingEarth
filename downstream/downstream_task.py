@@ -37,6 +37,7 @@ class DownstreamTask(metaclass=ABCMeta):
     def get_data(self):
         raise NotImplementedError()
 
+
     def run_as_main(self):
         dev = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
         parser = ArgumentParser(description='Test Advance Data')

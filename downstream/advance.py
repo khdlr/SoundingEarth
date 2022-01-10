@@ -88,8 +88,8 @@ def evaluate_advance(model, dev=None):
 
     trnval_test = train_test_split(key, label, z_img, z_snd, stratify=label, test_size=0.2, random_state=42)
     key_trnval, key_test, lbl_trnval, lbl_test, Z_img_trnval, Z_img_test, Z_snd_trnval, Z_snd_test = trnval_test
-    # for data_mode in ['image', 'sound', 'mean', 'concat']:
-    for data_mode in ['concat']:
+    for data_mode in ['image', 'sound', 'mean', 'concat']:
+    # for data_mode in ['concat']:
         print(f'Taking {data_mode} as data basis.')
         for i in tqdm(range(5)):
             seed = 42 * i
@@ -136,10 +136,16 @@ def evaluate_advance(model, dev=None):
     df = pd.DataFrame(results)
     pd.options.display.float_format = lambda x: f'{100*x:.2f}%'
 
-    metrics = dict(df[df.data == 'concat'].mean())
-    wandb.log({
-        f'Advance/{metric.title()}': val for metric, val in metrics.items()
-    })
+    # metrics = dict(df[df.data == 'concat'].mean())
+    # wandb.log({
+    #     f'Advance/{metric.title()}': val for metric, val in metrics.items()
+    # })
+
+    for data_mode, data in df.groupby('data'):
+        metrics = dict(data.mean())
+        wandb.log({
+            f'AdvanceDetailed/{data_mode}_{metric.title()}': val for metric, val in metrics.items()
+        })
 
     res = df.melt(id_vars=['data']).groupby(['data', 'variable']).agg(['mean', 'std']).T
     print(res['concat'][['precision', 'recall', 'fscore']])
@@ -171,5 +177,5 @@ if __name__ == '__main__':
     model = model.to(dev)
     model.eval()
 
-    model.load_state_dict(torch.load(args.model / 'checkpoints/best.pt'))
+    model.load_state_dict(torch.load(args.model / 'checkpoints/best.pt', map_location=dev))
     evaluate_advance(model)

@@ -17,7 +17,7 @@ from utils import RunningConfusionMatrix
 
 class DeepGlobe(DownstreamTask):
     def name(self):
-        return 'DeepGlobe Run 2'
+        return 'DeepGlobe'
 
     def n_classes(self):
         return 6
@@ -174,7 +174,7 @@ class DeepGlobe(DownstreamTask):
         miou = torch.mean(i.float() / u.float())
 
         print(f'Valid Epoch {epoch} -- OA: {oa:.4f}, mIoU: {miou:.4f}')
-        wandb.log({f'{self.name()}/Accuracy': oa, f'{self.name()}/mIoU': miou, f'_{self.name()}_epoch': epoch})
+        # wandb.log({f'{self.name()}/Accuracy': oa, f'{self.name()}/mIoU': miou, f'_{self.name()}_epoch': epoch})
 
 
 class DeepLab(nn.Module):
