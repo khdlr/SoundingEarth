@@ -13,3 +13,6 @@ Download the dataset at https://zenodo.org/record/5600379 and configure `DataRoo
 All other interesting stuff goes in `lib/`:
 * Models to `lib/models/`
 * Loss functions in `lib/loss_functions.py`
+
+## Pre-trained Weights
+Find model weights in the [Releases](https://github.com/khdlr/SoundingEarth/releases) tab
