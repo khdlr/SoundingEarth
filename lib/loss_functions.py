@@ -103,7 +103,6 @@ class SymmetricSimCLR(nn.Module):
         return loss
 
 
-
 class SimCLRLoss(nn.Module):
     def __init__(self, tau=0.2):
         super().__init__()
@@ -139,6 +138,9 @@ class ContrastiveLoss(nn.Module):
         return x / torch.linalg.norm(x, ord=2, dim=dim, keepdim=True)
 
     def forward(self, x, y, margin=torch.ones([])):
+        x = rearrange(x, '(i a) d -> i a d', a=1)
+        y = rearrange(y, '(i a) d -> i a d', i=1)
+
         sim = F.cosine_similarity(x, y, dim=-1)
         logsoftmax = torch.log_softmax(sim / self.tau, dim=1)
         loss = -torch.mean(torch.diag(logsoftmax))
